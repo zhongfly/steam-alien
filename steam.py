@@ -56,7 +56,7 @@ def joinplanet(access_token, planet_id):
                   params={'id': planet_id, 'access_token': access_token})
 
 
-def leave(access_token, planet_id):
+def leaveplanet(access_token, planet_id):
     requests.post('https://community.steam-api.com/ITerritoryControlMinigameService/LeaveGame/v0001/',
                   params={'gameid': planet_id, 'access_token': access_token})
 
@@ -114,6 +114,11 @@ def select_zone(planet_id, select_zone):
         return [name, None]
 
 
+def leavezone(access_token, select_zone):
+    requests.post('https://community.steam-api.com/IMiniGameService/LeaveGame/v0001/',
+                  params={'gameid': select_zone, 'access_token': access_token})
+
+
 def get_playerinfo(access_token):
     r = requests.post('https://community.steam-api.com/ITerritoryControlMinigameService/GetPlayerInfo/v0001/',
                       data={'access_token': access_token})
@@ -127,10 +132,10 @@ def play(access_token, zone_position, difficulty):
                       data={'zone_position': str(zone_position), 'access_token': access_token, })
     try:
         progress = r.json()['response']['zone_info']['capture_progress']
-        print('已成功加入，等待2min发送分数')
+        print('已成功加入，等待120s发送分数')
         post_data = {'access_token': access_token,
                      'score': score_dict[difficulty-1], "language": "schinese"}
-        time.sleep(115)
+        time.sleep(120)
         r = requests.post(
             'https://community.steam-api.com/ITerritoryControlMinigameService/ReportScore/v0001/', data=post_data)
         result = r.json()['response']
@@ -158,15 +163,14 @@ else:
         zone_function = autoselect_zone
     else:
         zone_function = select_zone
-
-
 playerinfo = get_playerinfo(access_token)
 print('level:{} score:{}/{}\n'.format(playerinfo['level'],
                                       playerinfo['score'], playerinfo['next_level_score']))
+if playerinfo.__contains__('active_zone_game'):
+    leavezone(access_token, playerinfo['active_zone_game'])
+if playerinfo.__contains__('active_planet'):
+    leaveplanet(access_token, playerinfo['active_planet'])
 planet_id = planets_function(planets)
-if  playerinfo.__contains__('active_planet') and playerinfo['active_planet'] != None:
-    leave(access_token, playerinfo['active_planet'])
-
 joinplanet(access_token, planet_id)
 pause = 0
 while(pause == 0):
@@ -191,7 +195,7 @@ while(pause == 0):
     else:
         if planets_function == autoselect_planets:
             print('{}没有可以进行游戏的房间了，重新选择星球'.format(zone_data[0]))
-            leave(access_token, planet_id)
+            leaveplanet(access_token, planet_id)
             planets = get_planets()
             planet_id = planets_function(planets)
             joinplanet(access_token, planet_id)
