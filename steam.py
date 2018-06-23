@@ -58,7 +58,7 @@ def joinplanet(access_token, planet_id):
 
 def leave(access_token, planet_id):
     requests.post('https://community.steam-api.com/ITerritoryControlMinigameService/LeaveGame/v0001/',
-                  params={'id': planet_id, 'access_token': access_token})
+                  params={'gameid': planet_id, 'access_token': access_token})
 
 
 def autoselect_zone(planet_id, difficulty_limit=1):
@@ -130,7 +130,7 @@ def play(access_token, zone_position, difficulty):
         print('已成功加入，等待2min发送分数')
         post_data = {'access_token': access_token,
                      'score': score_dict[difficulty-1], "language": "schinese"}
-        time.sleep(120)
+        time.sleep(115)
         r = requests.post(
             'https://community.steam-api.com/ITerritoryControlMinigameService/ReportScore/v0001/', data=post_data)
         result = r.json()['response']
