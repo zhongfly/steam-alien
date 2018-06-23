@@ -39,11 +39,11 @@ def select_planets(planets):
 
 
 def autoselect_planets(planets):
-    progress=1
+    progress = 1
     for planet in planets:
-        if planet['state']['capture_progress']<progress:
-            progress=planet['state']['capture_progress']
-            select_id=planet['id']
+        if planet['state']['capture_progress'] < progress:
+            progress = planet['state']['capture_progress']
+            select_id = planet['id']
             name = planet['state']['name']
         else:
             pass
@@ -51,8 +51,14 @@ def autoselect_planets(planets):
     return select_id
 
 
-def joinplanet(access_token,planet_id):
-    requests.post('https://community.steam-api.com/ITerritoryControlMinigameService/JoinPlanet/v0001/',params={'id': planet_id,'access_token':access_token})
+def joinplanet(access_token, planet_id):
+    requests.post('https://community.steam-api.com/ITerritoryControlMinigameService/JoinPlanet/v0001/',
+                  params={'id': planet_id, 'access_token': access_token})
+
+
+def leave(access_token, planet_id):
+    requests.post('https://community.steam-api.com/ITerritoryControlMinigameService/LeaveGame/v0001/',
+                  params={'id': planet_id, 'access_token': access_token})
 
 
 def autoselect_zone(planet_id, difficulty_limit=1):
@@ -86,7 +92,7 @@ def autoselect_zone(planet_id, difficulty_limit=1):
     return [name, select_zone, difficulty]
 
 
-def select_zone(planet_id,select_zone):
+def select_zone(planet_id, select_zone):
     r = requests.get('https://community.steam-api.com/ITerritoryControlMinigameService/GetPlanet/v0001/',
                      params={'id': '{}'.format(planet_id), "language": "schinese"})
     data = r.json()['response']['planets'][0]
@@ -108,10 +114,9 @@ def select_zone(planet_id,select_zone):
         return [name, None]
 
 
-
-
 def get_playerinfo(access_token):
-    r = requests.post('https://community.steam-api.com/ITerritoryControlMinigameService/GetPlayerInfo/v0001/',data={'access_token':access_token})
+    r = requests.post('https://community.steam-api.com/ITerritoryControlMinigameService/GetPlayerInfo/v0001/',
+                      data={'access_token': access_token})
     data = r.json()['response']
     return data
 
@@ -140,37 +145,39 @@ def play(access_token, zone_position, difficulty):
         return [False, 0]
 
 
-
-
-
-
 access_token = input('请输入token：')
+planets = get_planets()
+difficulty_limit = int(
+    input('3 高难度；2 中等难度；1 低难度（即所有难度均加入）\n请输入加入房间的最低难度（输入纯数字）：'))
+if input('是否自动更换星球(y/n):') != 'n':
+    planets_function = autoselect_planets
+    zone_function = autoselect_zone
+else:
+    planets_function = select_planets
+    if input('是否自动更换房间(y/n):') != 'n':
+        zone_function = autoselect_zone
+    else:
+        zone_function = select_zone
+
+
 playerinfo = get_playerinfo(access_token)
 print('level:{} score:{}/{}\n'.format(playerinfo['level'],
-                                    playerinfo['score'], playerinfo['next_level_score']))
-planets = get_planets()
-difficulty_limit=int(input('3 高难度；2 中等难度；1 低难度（即所有难度均加入）\n请输入加入房间的最低难度（输入纯数字）：'))
-if input('是否自动更换星球(y/n):') != 'n':
-    planets_function=autoselect_planets
-    zone_function=autoselect_zone
-else:
-    planets_function=select_planets
-    if input('是否自动更换房间(y/n):') != 'n':
-        zone_function=autoselect_zone
-    else:
-        zone_function=select_zone
-
-    
-
+                                      playerinfo['score'], playerinfo['next_level_score']))
 planet_id = planets_function(planets)
-joinplanet(access_token,planet_id)
+if  playerinfo.__contains__('active_planet') and playerinfo['active_planet'] != None:
+    leave(access_token, playerinfo['active_planet'])
+
+joinplanet(access_token, planet_id)
 pause = 0
 while(pause == 0):
     print('\n'+time.asctime(time.localtime(time.time())))
-    if zone_function==autoselect_zone:
-        zone_data = autoselect_zone(planet_id,difficulty_limit)
+    playerinfo = get_playerinfo(access_token)
+    print('level:{} score:{}/{}\n'.format(playerinfo['level'],
+                                          playerinfo['score'], playerinfo['next_level_score']))
+    if zone_function == autoselect_zone:
+        zone_data = autoselect_zone(planet_id, difficulty_limit)
     else:
-        zone_data = select_zone(planet_id,input('房间位置(纯数字):'))
+        zone_data = select_zone(planet_id, input('房间位置(纯数字):'))
     if zone_data[1] != None:
         zone_position = zone_data[1]
         difficulty = zone_data[2]
@@ -182,13 +189,11 @@ while(pause == 0):
         else:
             pass
     else:
-        if planets_function==autoselect_planets:
+        if planets_function == autoselect_planets:
             print('{}没有可以进行游戏的房间了，重新选择星球'.format(zone_data[0]))
+            leave(access_token, planet_id)
             planets = get_planets()
             planet_id = planets_function(planets)
-            joinplanet(access_token,planet_id)
+            joinplanet(access_token, planet_id)
         else:
             pass
-    playerinfo = get_playerinfo(access_token)
-    print('level:{} score:{}/{}\n'.format(playerinfo['level'],
-                                        playerinfo['score'], playerinfo['next_level_score']))
