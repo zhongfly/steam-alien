@@ -143,28 +143,40 @@ def play(access_token, zone_position, difficulty):
         return False
 
 
-def reset(access_token, resetall=True, output=True):
+def reset(access_token, resetall=True, output=True, planet_id=False):
     playerinfo = get_playerinfo(access_token)
     if output:
         print('level:{} score:{}/{}'.format(playerinfo['level'],
                                             playerinfo['score'], playerinfo['next_level_score']))
+    else:
+        pass
     if playerinfo.__contains__('active_zone_game'):
         leave(access_token, playerinfo['active_zone_game'])
         print('离开房间:{}'.format(playerinfo['active_zone_game']))
+    else:
+        pass
     if playerinfo.__contains__('active_planet') and resetall:
         leave(access_token, playerinfo['active_planet'])
         print('离开星球:{}'.format(playerinfo['active_planet']))
+    else:
+        pass
+    if planet_id and planet_id != playerinfo['active_planet']:
+        leave(access_token, playerinfo['active_planet'])
+        print('离开星球:{}'.format(playerinfo['active_planet']))
+    else:
+        pass
+
 
 
 def main(access_token):
     reset(access_token)
-    planet_id = None
+    planet_id = False
     while(1):
         print('\n'+time.asctime(time.localtime(time.time())))
-        reset(access_token, False)
+        reset(access_token, False, True, planet_id)
         best = getbest(access_token)
         if best['id'] != planet_id:
-            if planet_id != None:
+            if planet_id:
                 leave(access_token, planet_id)
             else:
                 pass
