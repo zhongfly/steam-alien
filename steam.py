@@ -46,6 +46,11 @@ def choose(difficulty_limit):
     for planet in planets:
         zones = getzone(planet['id'], difficulty_limit)
         if zones:
+            if zones[0]['difficulty'] == 1:
+                planet = planets[-1]
+                zones = getzone(planet['id'], difficulty_limit)
+            else:
+                pass
             zone = zones[0]
             select['zone_position'] = zone['zone_position']
             select['difficulty'] = zone['difficulty']
@@ -58,7 +63,9 @@ def choose(difficulty_limit):
             for n in range(difficulty_limit, 4):
                 blacklist[str(n)].append(planet['id'])
             pass
-    if select:
+    if select and select['difficulty']==1:
+
+
         return select
     else:
         return False
