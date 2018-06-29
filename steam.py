@@ -63,9 +63,7 @@ def choose(difficulty_limit):
             for n in range(difficulty_limit, 4):
                 blacklist[str(n)].append(planet['id'])
             pass
-    if select and select['difficulty']==1:
-
-
+    if select:
         return select
     else:
         return False
