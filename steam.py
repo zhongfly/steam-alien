@@ -32,11 +32,16 @@ def getzone(planet_id, difficulty_limit=1):
     data = r.json()['response']['planets'][0]
     name = data['state']['name']
     zones = data['zones']
-    def exp(z):
-        return z if z['difficulty'] >= difficulty_limit and not z['captured'] and z['capture_progress'] < 0.97 else False
-    zones = sorted(filter(exp, zones),
-                   key=lambda z: z['difficulty'], reverse=True)
-    return zones
+    boss_zones = sorted((z for z in zones if not z['captured'] and z['type'] == 4),key=lambda x: x['zone_position'])
+    if boss_zones:
+        print('boss!\n',boss_zones)
+        return boss_zones
+    else:
+        def exp(z):
+            return z if z['difficulty'] >= difficulty_limit and not z['captured'] and z['capture_progress'] < 0.97 else False
+        zones = sorted(filter(exp, zones),
+                       key=lambda z: z['difficulty'], reverse=True)
+        return zones
 
 
 def choose(difficulty_limit):
@@ -119,9 +124,16 @@ def upload(access_token, score):
         else:
             return False
     except Exception as e:
-        print('分数发送失败，5s后重试\nError:', e)
-        time.sleep(5)
+        print('分数发送失败\nError:', e)
         return False
+
+
+def bug(access_token, score):
+    print("\n====bug? try!=====")
+    stillbug=True
+    while stillbug == True:
+        stillbug=upload(access_token, score)
+    print('====bug====\n')
 
 
 def play(access_token, zone_position, difficulty):
@@ -131,36 +143,41 @@ def play(access_token, zone_position, difficulty):
     except Exception as e:
         print('加入游戏失败\nError:', e)
         return False
-    if r.json()['response'].__contains__('zone_info'):
-        print('已成功加入，等待110s发送分数')
-    else:
-        get_playerinfo(access_token)
-    time.sleep(110)
-    erro = 0
-    while erro < 4:
-        if upload(access_token, score_dict[difficulty-1]):
-            return True
+    try:
+        if r.json()['response'].__contains__('zone_info'):
+            print('已成功加入，等待110s发送分数')
+        time.sleep(110)
+        erro = 0
+        while erro < 4:
+            if upload(access_token, score_dict[difficulty-1]):
+                return True
+            else:
+                print('wait 5s')
+                time.sleep(5)
+                erro = erro+1
         else:
-            erro = erro+1
-    else:
-        print('分数发送失败已达4次，休息20s')
-        time.sleep(20)
+            print('分数发送失败已达4次，休息20s')
+            time.sleep(20)
+            return False
+    except Exception as e:
+        print('Error:', e)
+        bug(access_token, score_dict[difficulty-1])
+        reset(access_token,True,False,False)
         return False
 
-
-def reset(access_token, resetall=True, output=True, planet_id=False):
+def reset(access_token, resetzone=True, resetplanet=True, output=True, planet_id=False):
     playerinfo = get_playerinfo(access_token)
     if output:
         print('level:{} score:{}/{}'.format(playerinfo['level'],
                                             playerinfo['score'], playerinfo['next_level_score']))
     else:
         pass
-    if playerinfo.__contains__('active_zone_game'):
+    if playerinfo.__contains__('active_zone_game') and resetzone:
         leave(access_token, playerinfo['active_zone_game'])
         print('离开房间:{}'.format(playerinfo['active_zone_game']))
     else:
         pass
-    if playerinfo.__contains__('active_planet') and resetall:
+    if playerinfo.__contains__('active_planet') and resetplanet:
         leave(access_token, playerinfo['active_planet'])
         print('离开星球:{}'.format(playerinfo['active_planet']))
     else:
@@ -178,8 +195,15 @@ def main(access_token):
     planet_id = False
     while(1):
         print('\n'+time.asctime(time.localtime(time.time())))
-        reset(access_token, False, True, planet_id)
+        playerinfo = get_playerinfo(access_token)
+        print('level:{} score:{}/{}'.format(playerinfo['level'],
+                                            playerinfo['score'], playerinfo['next_level_score']))
         best = getbest(access_token)
+        if playerinfo.__contains__('active_zone_game'):
+            bug(access_token, score_dict[difficulty-1])
+            leave(access_token, playerinfo['active_zone_game'])
+        if playerinfo.__contains__('active_planet'):
+            planet_id = playerinfo['active_planet']
         if best['id'] != planet_id:
             if planet_id:
                 leave(access_token, planet_id)
