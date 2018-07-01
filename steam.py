@@ -3,8 +3,9 @@
 import requests
 import sys
 import os
+import re
 import time
-from threading import Thread
+from threading import Thread, Event
 from multiprocessing.dummy import Pool as ThreadPool
 import random
 
@@ -12,6 +13,7 @@ difficulty_dict = ['低', '中', '高', 'Boss']
 score_dict = ['600', '1200', '2400', '???']
 best_update = None
 bestupdater_flag = 1
+updater_ready = Event()
 BASE_URL = 'https://community.steam-api.com/ITerritoryControlMinigameService/{}/v0001?language=schinese'
 
 
@@ -22,17 +24,21 @@ def load():
             lines = f.readlines()
             flen = len(lines)
             for i in range(flen):
+                if lines[i][0]=='#':
+                    print('忽略#开头的行：',lines[i].strip('\n'))
+                    continue
                 data = lines[i].strip('\n').split('+')
-                if len(data) == 2:
-                    user = [data[0], data[1]]
+                if len(data) == 3:
+                    user = [data[0], data[1], data[2]]
                 elif len(data) == 1:
                     name = data[0][-4:]
-                    user = [name, data[0]]
+                    user = [name, data[0], data[1]]
                 users.append(user)
         return users
     else:
         with open('token.txt', 'w', encoding="utf-8") as f:
-            f.write('your_name+your_token\nhe_name+he_token\nher_name+her_token')
+            f.write(
+                'bot1+token+Steam64Id\nbot2+token+Steam64Id\nbot3+token+Steam64Id')
         return False
 
 
@@ -59,21 +65,25 @@ def getzone(planet_id):
     zones = data['zones']
 
     def real(zone):
-        if zone.__contains__('capture_progress'):
+        if zone.__contains__('capture_progress') and not zone['captured']:
             return True
         else:
             False
     zones = list(filter(real, zones))
+
     boss_zones = []
-    boss_zones = sorted((z for z in zones if not z['captured'] and z['type'] == 4 and z['boss_active']),key=lambda x: x['zone_position'])
+    boss_zones = sorted((z for z in zones if z['type']
+                         == 4 and z['boss_active']), key=lambda x: x['zone_position'])
     if boss_zones:
         print(f"Find boss in {name}!\n")
         for z in boss_zones:
-            z['difficulty']=4
+            z['difficulty'] = 4
     else:
+        zones.sort(key=lambda z: z['capture_progress'])
         pass
+
     def exp(z):
-        return z if not z['captured'] and 0 < z['capture_progress'] < 0.97 and z['type'] != 4 and z["zone_position"] != 0 else False
+        return z if 0 < z['capture_progress'] < 0.95 and z['type'] != 4 else False
     others = sorted(filter(exp, zones),
                     key=lambda z: z['difficulty'], reverse=True)
     return boss_zones+others
@@ -95,14 +105,18 @@ def getbest():
                 select['name'] = planet['state']['name']
                 select['planet_progress'] = planet['state']['capture_progress']
     if select['difficulty'] == 1:
-        planet = planets[-1]
-        zone = planet['zones'][0]
-        select['zone_position'] = zone['zone_position']
-        select['difficulty'] = zone['difficulty']
-        select['zone_progress'] = zone['capture_progress']
-        select['id'] = planet['id']
-        select['name'] = planet['state']['name']
-        select['planet_progress'] = planet['state']['capture_progress']
+        planets.reverse()
+        for planet in planets:
+            zones = planet['zones']
+            if zones:
+                zone = zones[0]
+                select['zone_position'] = zone['zone_position']
+                select['difficulty'] = zone['difficulty']
+                select['zone_progress'] = zone['capture_progress']
+                select['id'] = planet['id']
+                select['name'] = planet['state']['name']
+                select['planet_progress'] = planet['state']['capture_progress']
+                break
     if select:
         return select
     else:
@@ -112,37 +126,64 @@ def getbest():
 
 def bestupdater():
     global best_update
+    erro = 0
     while(bestupdater_flag):
         try:
             result = getbest()
-            if result:
+            if result != {"response": {}}:
                 best_update = result
-                time.sleep(int(random.uniform(90, 110)))
-            else:
-                print('寻找最佳星球失败')
+                if not updater_ready.isSet():
+                    updater_ready.set()
+                # print('调试信息|bestupdater|',result)
+                if result['zone_progress'] > 0.9:
+                    time.sleep(15)
+                elif result['zone_progress'] > 0.8:
+                    # print(time.strftime("%H:%M:%S", time.localtime()),
+                    #       '调试信息|bestupdater|', result)
+                    time.sleep(30)
+                elif result['difficulty'] == 4:
+                    time.sleep(60)
+                else:
+                    time.sleep(int(random.uniform(60, 90)))
+            elif erro < 5:
+                err0 += 1
+                print('寻找最佳星球失败,将重试')
+                time.sleep(10)
+            elif erro >= 5:
+                erro = 0
+                print('retry after 20s')
+                time.sleep(20)
                 pass
         except Exception as e:
             print('寻找最佳星球失败|Error:', e)
 
+
 class worker:
-    def __init__(self,data):
+    def __init__(self, data):
+        self.accountid = int(data[2]) - 76561197960265728
         self.access_token = data[1]
         self.botname = data[0]
         self.playerinfo = {}
         self.planet_id = ''
         self.best = {}
+        self.bossScore = 0
+        self.tmpScore = 0
     def timestamp(self):
         t = time.strftime("%H:%M:%S", time.localtime())
         return'{} |{} |'.format(t, self.botname)
-    def bestupdate(self,data):
-        self.best=data
+
+    def bestupdate(self, data):
+        self.best = data
+
     def joinplanet(self, planet_id):
         requests.post(BASE_URL.format('JoinPlanet'), params={
                       'id': planet_id, 'access_token': self.access_token})
-    def leave(self,gameid):
+
+    def leave(self, gameid):
         requests.post('https://community.steam-api.com/IMiniGameService/LeaveGame/v0001/',
                       params={'gameid': gameid, 'access_token': self.access_token})
-    def get_playerinfo(self,output=False):
+
+    def get_playerinfo(self, output=False):
         r = requests.post(BASE_URL.format('GetPlayerInfo'),
                           data={'access_token': self.access_token})
         self.playerinfo = r.json()['response']
@@ -150,61 +191,125 @@ class worker:
             info = 'level:{} score:{}/{}'.format(
                 self.playerinfo['level'], self.playerinfo['score'], self.playerinfo['next_level_score'])
             print(self.timestamp(), info)
-    def uploadboss(self):
-        useheal = 0
-        count = random.uniform(-60, 0)
+
+    def fightboss(self):
+        # print(self.timestamp(),'调试信息|uploadboss|')
+        bossFailsAllowed = 10
+        count = random.randint(-60, 0)
+        self.bossScore += self.tmpScore
         data = {
             'access_token': self.access_token,
-            'use_heal_ability': str(useheal),
-            'damage_to_boss': '1',
-            'damage_taken': '0'
+            'use_heal_ability': 0,
+            'damage_to_boss': 1,
+            'damage_taken': 0
         }
-        while(1):
+        while True:
             try:
+                output = 0
+                useheal = 0
+                # print(count,bossFailsAllowed)
                 if count >= 120:
-                    useheal += 1
+                    useheal = 1
                     count = 0
                     data['use_heal_ability'] = useheal
-                    print(self.timestamp(), 'Using heal ability')
-                r = requests.post(BASE_URL.format('ReportBossDamage'), data=data)
-                print(r.text)
-                if r.json()['eresult'] == 1:
+                    print(self.timestamp(), 'FightingBoss|使用治愈能力')
+                r = requests.post(BASE_URL.format(
+                    'ReportBossDamage'), data=data)
+                # print(self.timestamp(),'调试信息|fightboss|',r.text)
+                eresult=r.headers['eresult']
+                if eresult != 1:
+                    bossFailsAllowed -= 1
+                    if bossFailsAllowed < 1:
+                        print(self.timestamp(), 'FightingBoss|错误次数过多，退出')
+                        break
+                if eresult == 11:
+                    print(self.timestamp(), 'FightingBoss|InvalidState')
                     break
                 result = r.json()['response']
-                if result.__contains__('boss_status'):
-                    boss_status = result['boss_status']
-                    print("{}".format(result['boss_status']))
-                if result['game_over']:
-                    print(self.timestamp(), 'Boss Dead')
-                    break
-                if result['waiting_for_players']:
-                    print(self.timestamp(), 'waiting_for_players')
-                info = "Boss HP:{}/{} Lasers: {} Team Heals: {}".fomat(
+                if result['boss_status'].__contains__('boss_status'):
+                    if result.__contains__('boss_players'):
+                        print(self.timestamp(), 'FightingBoss|等待')
+                        continue
+                boss_status = result['boss_status']
+                info = "FightingBoss|Boss 血量:{}/{} Lasers: {} 团队治疗量: {}".format(
                     boss_status['boss_hp'], boss_status['boss_hp'], result['num_laser_uses'], result['num_team_heals'])
                 print(self.timestamp(), info)
+                output += 1
+                # print(self.timestamp(),'调试信息|fightboss|',result['boss_status'])
+                boss_players = boss_status['boss_players']
+                myplayer = None
+                for player in boss_players:
+                    if player["accountid"] == self.accountid:
+                        myplayer=player
+                        self.tmpScore = int(player["xp_earned"])
+                        info = "FightingBoss|玩家血量: {}/{}|现在的等级为：{} 经验:{}|获得的经验: {}".format(
+                            player["hp"], player["max_hp"], player['new_level'], int(player['score_on_join'])+int(player["xp_earned"]), player["xp_earned"])
+                        print(self.timestamp(), info)
+                        output += 1
+                        if player.__contains__('witnessed_boss_defeat'):
+                            if player['witnessed_boss_defeat']:
+                                print(self.timestamp(),
+                                      'FightingBoss|Boss 已死!')
+                                output += 1
+                                break
+                        break
+                if result.__contains__('game_over'):
+                    if result['game_over']:
+                        if myplayer != None:
+                            self.bossScore += myPlayer["xp_earned"]
+                        print(self.timestamp(), 'FightingBoss|游戏结束|在这局游戏中获得的经验：{}'.format(self.bossScore))
+                        output += 1
+                        break
+                if result.__contains__('waiting_for_players'):
+                    if result['waiting_for_players']:
+                        print(self.timestamp(), 'FightingBoss|等待其他玩家')
+                        output += 1
+                        continue
+                if myplayer != None:
+                    print(self.timestamp(), 'Boss|等级：{} => {} |获得的经验:{}'.format(myplayer["level_on_join"], myplayer["new_level"], int(player['score_on_join'])+int(self.bossScore)))
+                    output += 1
+                # if output == 0:
+                #     return False
                 count += 5
                 time.sleep(5)
             except Exception as e:
-                print(self.timestamp(), '分数发送失败|Error:', e)
+                print(self.timestamp(), 'FightingBoss|Error:', e)
                 return False
+        return True
 
-    def boss(self):
-        zone_position=self.best['zone_position']
+    def joinbosszone(self):
+        zone_position = self.best['zone_position']
         try:
             r = requests.post(BASE_URL.format('JoinBossZone'), data={
                               'zone_position': str(zone_position), 'access_token': self.access_token, })
+            #print(r.headers['X-eresult'])
+            if int(r.headers['X-eresult']) != 1:
+                print(self.timestamp(), '加入游戏失败|',
+                      r.headers['X-error_message'])
+                match = re.search(r'\d+', r.headers['X-error_message'])
+                if match!=None:
+                    self.leave(match.group())
+                return False
+            else:
+                time.sleep(4)
+                return True
         except Exception as e:
             print(self.timestamp(), '加入游戏失败|Error:', e)
             return False
+
+    def boss(self):
         try:
-            print(r.text)
-            if r.json()['response'].__contains__('zone_info'):
-                print(self.timestamp(), '已成功加入')
-            else:
-                print(self.timestamp(), r.text)
-                print(self.timestamp(), r.headers['X-error_message'])
-            if uploadboss():
-                return True
+            if self.joinbosszone():
+                result=self.fightboss()
+                # if result == None:
+                #     print(self.timestamp(), 'Boss|fightboss出现错误，20s重试')
+                #     time.sleep(20)
+                #     return False
+                # elif result == False:
+                #     time.sleep(20)
+                # else:
+                #     time.sleep(30)
+                #     return True
         except Exception as e:
             print(self.timestamp(), 'Error:', e)
             self.reset(True, False, False)
@@ -212,10 +317,10 @@ class worker:
 
     def bug(self):
         print(self.timestamp(), "====bug? try!=====")
-        score=score_dict[self.best['difficulty']-1]
+        score = score_dict[self.best['difficulty']-1]
         stillbug = True
-        while stillbug == True:
-            stillbug = upload(self.access_token, score, self.botname)
+        while stillbug != False:
+            stillbug = self.upload(score)
         print(self.timestamp(), '====bug?====')
 
     def upload(self, score):
@@ -229,14 +334,17 @@ class worker:
                 return True
             else:
                 print(self.timestamp(), '分数发送失败', r.headers['X-error_message'])
+                if 'which is too soon' in r.headers['X-error_message']:
+                    print('由于提示过快，休息5s')
+                    time.sleep(5)
                 return False
         except Exception as e:
             print(self.timestamp(), '分数发送失败|Error:', e)
             return False
 
     def play(self):
-        zone_position=self.best['zone_position']
-        score=score_dict[self.best['difficulty']-1]
+        zone_position = self.best['zone_position']
+        score = score_dict[self.best['difficulty']-1]
         try:
             r = requests.post(BASE_URL.format('JoinZone'), data={
                               'zone_position': str(zone_position), 'access_token': self.access_token, })
@@ -260,12 +368,15 @@ class worker:
                     time.sleep(20)
                     return False
             else:
-                print(r.text)
-                print(self.timestamp(), '加入游戏失败|', r.headers['X-error_message'])
+                print(self.timestamp(), '加入游戏失败|',
+                      r.headers['X-error_message'])
+                match = re.search(r'\d+', r.headers['X-error_message'])
+                if match!=None:
+                    self.leave(match.group())
                 return False
         except Exception as e:
             print(self.timestamp(), 'Error:', e)
-            self.bug(score)
+            self.bug()
             selfreset(True, False, False)
             return False
 
@@ -292,21 +403,22 @@ class worker:
                 playerinfo['active_planet']))
         else:
             pass
+
     def loop(self):
         self.get_playerinfo(True)
         if self.playerinfo.__contains__('active_zone_game'):
             if self.best.__contains__('difficulty'):
-                if self.best['difficulty']<4:
+                if self.best['difficulty'] < 4:
                     self.bug()
             self.leave(self.playerinfo['active_zone_game'])
 
         self.bestupdate(best_update)
-        z_d=self.best['difficulty']
+        z_d = self.best['difficulty']
         if self.playerinfo.__contains__('active_planet'):
             self.planet_id = self.playerinfo['active_planet']
         if self.best['id'] != self.planet_id:
             if self.planet_id:
-                self.leave(planet_id)
+                self.leave(self.planet_id)
             else:
                 pass
             self.planet_id = self.best['id']
@@ -324,17 +436,20 @@ class worker:
         else:
             self.boss()
 
+
 def handler(user):
-    planet_id=0
-    bot=worker(user)
+    planet_id = 0
+    bot = worker(user)
     bot.reset()
+    updater_ready.wait()
+    print(time.strftime("%H:%M:%S", time.localtime()),
+          '线程：{} 已就绪'.format(user[0]))
     while(1):
         try:
             bot.loop()
         except Exception as e:
             t = time.strftime("%H:%M:%S", time.localtime())
-            print('{} | {}|Error:'.format(t,user[0]), e)
-
+            print('{} | {}|Error:'.format(t, user[0]), e)
 
 
 def main():
@@ -346,9 +461,8 @@ def main():
     updater = Thread(target=bestupdater)
     updater.start()
     pool = ThreadPool(len(users)+1)
-    print('starting')
-    time.sleep(10)
-    pool.map(handler,users)
+    print(time.strftime("%H:%M:%S", time.localtime()), 'starting,please wait')
+    pool.map(handler, users)
     pool.close()
     pool.join()
     bestupdater_flag = 0
