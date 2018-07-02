@@ -49,6 +49,10 @@ def load():
         return False
 
 
+def gettime():
+    t=int(time.time())
+    return t
+
 def get_planets():
     r = requests.get(BASE_URL.format('GetPlanets'),
                      params={"active_only": "1"}, headers=headers)
@@ -82,8 +86,7 @@ def getzone(planet_id):
     boss_zones = sorted((z for z in zones if z['type']
                          == 4 and z['boss_active']), key=lambda x: x['zone_position'])
     if boss_zones:
-        print("Find boss in {}!".format(name))
-        print(boss_zones)
+        print(time.strftime("%H:%M:%S", time.localtime())," |在{}发现Boss!".format(name))
         for z in boss_zones:
             z['difficulty'] = 4
     else:
@@ -217,7 +220,7 @@ class worker:
     def fightboss(self):
         # print(self.timestamp(),'调试信息|uploadboss|')
         bossFailsAllowed = 10
-        nextHeal = 99999999999999999
+        nextheal = 99999999999999999
         WaitingForPlayers = True
         damageToBoss=lambda x: 0 if x else 1
         MyScoreInBoss = 0
@@ -232,9 +235,10 @@ class worker:
             damageToBoss = 1
             damageTaken = 0
             # print(count,bossFailsAllowed)
-            if int(time.time()) >= nextheal:
+
+            if gettime() >= nextheal:
                 UseHeal = 1
-                nextheal = int(time.time()) + 120
+                nextheal = gettime() + 120
                 print(self.timestamp(), 'Boss战|使用治愈能力')
             data = {
                 'access_token': self.access_token,
@@ -267,7 +271,7 @@ class worker:
                     continue
                 else:
                     WaitingForPlayers = False
-                    nextheal = int(time.time()) + random.randint(0, 120)
+                    nextheal = gettime() + random.randint(0, 120)
             boss_status = result['boss_status']
             boss_players = boss_status['boss_players']
             myplayer = None
@@ -323,8 +327,8 @@ class worker:
         try:
             data={'zone_position': str(self.best['zone_position']), 'access_token': self.access_token, }
             r = requests.post(BASE_URL.format('JoinBossZone'), data=data, headers=headers)
-            print(r.text)
-            if int(r.headers['X-eresult']) != 1:
+            eresult=int(r.headers['X-eresult'])
+            if eresult != 1:
                 print(self.timestamp(), '加入Boss地区失败|',r.headers['X-error_message'])
                 return False
             else:
