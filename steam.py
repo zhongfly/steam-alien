@@ -70,7 +70,7 @@ def getzone(planet_id):
         r = requests.get(BASE_URL.format('GetPlanet'), params={
                          'id': '{}'.format(planet_id)}, headers=headers)
     except Exception as e:
-        print('Error:', e)
+        print('getzone|Error:', e)
     data = r.json()['response']['planets'][0]
     name = data['state']['name']
     zones = data['zones']
@@ -148,7 +148,7 @@ def bestupdater():
                     r = requests.get(BASE_URL.format('GetPlanet'), params={
                                      'id': '{}'.format(best_update['id'])}, headers=headers)
                 except Exception as e:
-                    print('Error:', e)
+                    print('bestupdater|Error:', e)
                 zones = r.json()['response']['planets'][0]['zones']
                 zone = zones[best_update['zone_position']]
                 if zone['boss_active']:
@@ -191,6 +191,7 @@ class worker:
         self.planet_id = ''
         self.best = {}
         self.OldScore = 0
+        self.lag = 0
 
     def timestamp(self):
         t = time.strftime("%H:%M:%S", time.localtime())
@@ -220,7 +221,7 @@ class worker:
     def fightboss(self):
         # print(self.timestamp(),'调试信息|uploadboss|')
         bossFailsAllowed = 10
-        nextheal = 99999999999999999
+        nextheal = 9999999999999
         WaitingForPlayers = True
         damageToBoss=lambda x: 0 if x else 1
         MyScoreInBoss = 0
@@ -232,10 +233,7 @@ class worker:
         }
         while True:
             useHeal = 0
-            damageToBoss = 1
             damageTaken = 0
-            # print(count,bossFailsAllowed)
-
             if gettime() >= nextheal:
                 UseHeal = 1
                 nextheal = gettime() + 120
@@ -307,7 +305,7 @@ class worker:
                     BossEstimate['DeltHP'])/len(BossEstimate['DeltHP'])
                 EstXPTotal = (
                     int(boss_status['boss_max_hp'])/EstBossDPT) * EstXPRate
-                info = 'Boss战|预计获得的总经验：{} 速度为：{}xp/每次 DPS:{}/s'.format(
+                info = 'Boss战|预计获得的总经验：{:.2} 速度为：{:.2}xp/每次 DPS:{:.2}/s'.format(
                     EstXPTotal, EstXPRate, EstBossDPT/5)
                 print(self.timestamp(), info)
             BossEstimate['PrevHP'] = int(boss_status['boss_hp'])
@@ -317,7 +315,7 @@ class worker:
                 BossEstimate['PrevXP'] = 0
             time.sleep(5)
         if MyScoreInBoss > 0:
-            info = '====Boss战后，你的经验：{} 获得的经验：{} (仅供参考)===='.format(
+            info = '====Boss战后，你的经验：{} 获得的经验：{} ===='.format(
                 MyScoreInBoss, MyScoreInBoss-self.OldScore)
             self.OldScore = MyScoreInBoss
             print(self.timestamp(), info)
@@ -348,10 +346,21 @@ class worker:
                     result['new_score']))
                 return True
             else:
-                print(self.timestamp(), '分数发送失败', r.headers['X-error_message'])
+                pattern=re.compile(r'\d{10}')
+                result=pattern.findall(r.headers['X-error_message'])
+                getlag=False
+                if result!=[]:
+                    t=(int(result[1])-int(result[0]))/(110+self.lag)*(110-int(result[1])+int(result[0]))
+                    self.lag=int(t)
+                    print('延时：{}s'.format(self.lag))
                 if 'which is too soon' in r.headers['X-error_message']:
-                    print('由于提示过快，休息5s')
-                    time.sleep(5)
+                    print(self.timestamp(), '由于速度过快，分数发送失败')
+                    return True
+                elif 'which is too late' in r.headers['X-error_message']:
+                    print(self.timestamp(), '由于速度过慢，分数发送失败')
+                    return True
+                else:
+                    print(self.timestamp(), '分数发送失败', r.headers['X-error_message'])
                 return False
         except Exception as e:
             print(self.timestamp(), '分数发送失败|Error:', e)
@@ -369,8 +378,8 @@ class worker:
             return False
         try:
             if r.json()['response'].__contains__('zone_info'):
-                print(self.timestamp(), '已成功加入，等待110s发送分数')
-                time.sleep(110)
+                print(self.timestamp(), '已成功加入，等待{}s发送分数'.format(110+self.lag))
+                time.sleep(110+self.lag)
                 erro = 0
                 while erro < 4:
                     if self.upload(score):
@@ -389,11 +398,10 @@ class worker:
                 match = re.search(r'\d+', r.headers['X-error_message'])
                 if match != None:
                     self.leave(match.group())
-                else:
-                    time.sleep(10)
+                time.sleep(10)
                 return False
         except Exception as e:
-            print(self.timestamp(), 'Error:', e)
+            print(self.timestamp(), '加入游戏失败|Error:', e)
             self.reset(True, False, False)
             return False
 
